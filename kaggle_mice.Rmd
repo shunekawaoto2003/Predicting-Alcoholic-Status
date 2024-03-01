@@ -1,0 +1,280 @@
+---
+title: "Kaggle"
+author: "Shune Kawaoto"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Prepping the data
+```{r}
+# test <-  read.csv('TestSAData2NoY.csv')
+# train <- read.csv('TrainSAData2.csv')
+# 
+# test <- test[, -1]
+# train <- train[, -1]
+# 
+# train$Alcoholic.Status <- as.factor(train$Alcoholic.Status)
+# train$sex <- as.factor(train$sex)
+# train$hear_left <- as.factor(train$hear_left)
+# train$hear_right <- as.factor(train$hear_right)
+# train$urine_protein <- as.factor(train$urine_protein)
+# train$BMI.Category <- as.factor(train$BMI.Category)
+# train$AGE.Category <- as.factor(train$AGE.Category)
+# train$Smoking.Status <- as.factor(train$Smoking.Status)
+# 
+# test$sex <- as.factor(test$sex)
+# test$hear_left <- as.factor(test$hear_left)
+# test$hear_right <- as.factor(test$hear_right)
+# test$urine_protein <- as.factor(test$urine_protein)
+# test$BMI.Category <- as.factor(test$BMI.Category)
+# test$AGE.Category <- as.factor(test$AGE.Category)
+# test$Smoking.Status <- as.factor(test$Smoking.Status)
+
+completedData <- read.csv("completedData.csv")
+
+completedData$Alcoholic.Status <- as.factor(completedData$Alcoholic.Status)
+completedData$sex <- as.factor(completedData$sex)
+completedData$hear_left <- as.factor(completedData$hear_left)
+completedData$hear_right <- as.factor(completedData$hear_right)
+# completedData$urine_protein <- as.factor(completedData$urine_protein)
+completedData$BMI.Category <- as.factor(completedData$BMI.Category)
+completedData$AGE.Category <- as.factor(completedData$AGE.Category)
+completedData$Smoking.Status <- as.factor(completedData$Smoking.Status)
+
+full_test <- read.csv("full_test.csv")
+
+full_test$sex <- as.factor(full_test$sex)
+full_test$hear_left <- as.factor(full_test$hear_left)
+full_test$hear_right <- as.factor(full_test$hear_right)
+full_test$urine_protein <- as.factor(full_test$urine_protein)
+full_test$BMI.Category <- as.factor(full_test$BMI.Category)
+full_test$AGE.Category <- as.factor(full_test$AGE.Category)
+full_test$Smoking.Status <- as.factor(full_test$Smoking.Status)
+
+# install.packages("Rtools")
+# install.packages("pan")
+# install.packages("mice")
+# library(mice)
+
+install.packages("randomForest")
+library(randomForest)
+# library(ggplot2)
+install.packages("caret")
+library(caret)
+install.packages("glmnet")
+library(glmnet)
+install.packages("factoextra")
+# library(factoextra)
+library(e1071)
+install.packages("xgboost")
+library(xgboost)
+
+```
+
+
+
+## Imputation - mice (commented out)
+```{r}
+# imputedData <- mice(train, method='pmm', m=5, maxit=50, seed=500)
+# completedData <- complete(imputedData, 1)
+
+# write.csv(completedData, "C:\\Users\\kawao\\Documents\\UCLA\\2023 Fall\\Stats 101C\\Kaggle Project\\completedData.csv", row.names=FALSE)
+
+
+# imputed_test <- mice(test, method='pmm', m=5, maxit=50, seed=500)
+# full_test <- complete(imputed_test, 1)
+
+# write.csv(full_test, "C:\\Users\\kawao\\Documents\\UCLA\\2023 Fall\\Stats 101C\\Kaggle Project\\full_test.csv", row.names=FALSE)
+```
+
+
+
+## Variable selection - LASSO
+```{r}
+X <- model.matrix(~ . -Alcoholic.Status -1, data = completedData)
+y <- completedData$Alcoholic.Status
+X <- scale(X)
+
+set.seed(123)
+cv_fit <- cv.glmnet(X, y, family = "binomial", alpha = 1)
+best_lambda <- cv_fit$lambda.min
+lasso_model <- glmnet(X, y, family = "binomial", alpha = 1, lambda = best_lambda)
+
+coef(lasso_model, s = best_lambda)
+```
+INCLUDE: sex, age, height, weight, sight_left, SBP, DBP, BLDS, HDL_chole, LDL_chole, triglyeride, hemoglobin, urine_protein, serum_creatine, SGOT_AST, SGOT_ALT, gmma_GTP, BMI, BMI.Category, AGE, Smoking.Status
+
+i.e. EXCLUDE: waistline, sight_right, hear_left, hear_right, and tot_chole
+
+
+
+## Random forest - after lasso selection selection (20 predictors)
+```{r}
+# set.seed(123)
+# rf_reduced <- randomForest(Alcoholic.Status ~ .-waistline -sight_right -hear_left -hear_right -tot_chole , data=completedData)
+# output_reduced <- predict(rf_reduced, full_test)
+# # kaggle score 0.72796
+# 
+# set.seed(123)
+# rf_mtry6 <- randomForest(Alcoholic.Status ~ .-waistline -sight_right -hear_left -hear_right -tot_chole , data=completedData, mtry=6)
+# output_mtry6 <- predict(rf_mtry6, full_test)
+# # kaggle score 0.72646
+```
+
+
+
+## Random forest model - hanna's lasso selection (4 predictors)
+```{r}
+# set.seed(123)
+# rf_hanna <- randomForest(Alcoholic.Status ~ sex + BMI + AGE.Category + Smoking.Status, data=completedData)
+# output_hanna <- predict(rf_hanna, full_test)
+# # kaggle = 0.7049
+```
+
+
+
+## Random forest model - hanna's scaled lasso (9 predictors)
+```{r}
+# set.seed(123)
+# rf_refined <- randomForest(Alcoholic.Status~sex+age+height+DBP+HDL_chole+SGOT_AST+SGOT_ALT+gamma_GTP+Smoking.Status, data=completedData)
+# output_refined <- predict(rf_refined, full_test)
+# # kaggle = 0.71963
+```
+
+
+
+## Finding optimal number of predictors
+```{r}
+set.seed(123)
+rf_full <- randomForest(Alcoholic.Status ~ ., data=completedData)
+varImpPlot(rf_full)
+# 
+#
+# set.seed(123)
+# rf_reduced2 <- randomForest(Alcoholic.Status ~ . -hear_right - hear_left - urine_protein
+#                            - BMI.Category - AGE.Category - weight - serum_creatinine
+#                            - sight_left - sight_right - BMI, data=completedData, mtry=5)
+# output_reduced2 <- predict(rf_reduced2, full_test)
+# write.csv(data.frame("ID"=c(1:30000),"Alcoholic.Status"=output_reduced2), file='output_reduced2.csv', row.names = FALSE)
+# # kaggle score 0.7279
+# 
+#
+# set.seed(123)
+# rf_reduced3 <- randomForest(Alcoholic.Status ~ . -hear_right - hear_left - urine_protein
+#                            - BMI.Category - AGE.Category - weight - serum_creatinine
+#                            - sight_left - sight_right - BMI, data=completedData)
+# output_reduced3 <- predict(rf_reduced3, full_test)
+# write.csv(data.frame("ID"=c(1:30000),"Alcoholic.Status"=output_reduced3), file='output_reduced3.csv', row.names = FALSE)
+# # kaggle score 0.7268
+# 
+#
+# set.seed(123)
+# rf_reduced4 <- randomForest(Alcoholic.Status ~ . -hear_right - hear_left - urine_protein
+#                            - BMI.Category - AGE.Category - weight - serum_creatinine
+#                            - sight_left - sight_right - BMI - SGOT_AST - DBP - SBP
+#                            - waistline - height - SGOT_ALT - BLDS, data=completedData, mtry=5)
+# output_reduced4 <- predict(rf_reduced4, full_test)
+# write.csv(data.frame("ID"=c(1:30000),"Alcoholic.Status"=output_reduced4), file='output_reduced4.csv', row.names = FALSE)
+# # kaggle score 0.71296
+# 
+#
+# set.seed(123)
+# rf_reduced5 <- randomForest(Alcoholic.Status ~ gamma_GTP + hemoglobin + HDL_chole + age + sex + triglyceride, data=completedData, mtry=5)
+# output_reduced5 <- predict(rf_reduced5, full_test)
+# write.csv(data.frame("ID"=c(1:30000),"Alcoholic.Status"=output_reduced5), file='output_reduced5.csv', row.names = FALSE)
+# kaggle score 0.6983
+#
+#
+# set.seed(123)
+# rf <- randomForest(Alcoholic.Status ~ . -hear_right - hear_left - urine_protein
+#                            - BMI.Category - AGE.Category - weight - serum_creatinine
+#                            - sight_left - sight_right - BMI - SGOT_AST - DBP, data=completedData, mtry=5, ntree=200)
+# output_rf <- predict(rf_reduced2, full_test)
+# write.csv(data.frame("ID"=c(1:30000),"Alcoholic.Status"=output_rf), file='output_rf.csv', row.names = FALSE)
+# # kaggle score = 0.72763
+```
+
+
+
+## naive bayes
+```{r}
+# set.seed(123)
+# m1 <- naiveBayes(Alcoholic.Status ~.-hear_right - hear_left - urine_protein
+#                            - BMI.Category - AGE.Category - weight - serum_creatinine
+#                            - sight_left - sight_right - BMI, data=completedData)
+# summary(m1)
+# pred_m1 <- predict(m1, full_test)
+# 
+# fun <- predict(rf_reduced2, completedData)
+# confusionMatrix(fun, completedData$Alcoholic.Status)
+# write.csv(data.frame("ID"=c(1:30000),"Alcoholic.Status"=pred_m1), file='naive_bayes.csv', row.names = FALSE)
+# # kaggle score 0.69573
+```
+
+
+## Logistic
+```{r}
+# log_m1 <- glm(Alcoholic.Status ~ . -hear_right - hear_left - urine_protein
+#                            - BMI.Category - AGE.Category - weight - serum_creatinine
+#                           - sight_left - sight_right - BMI, data=completedData,
+#               family=binomial())
+# pred_log <- predict(log_m1, full_test)
+# pred_log <- ifelse(pred_log > 0.5, "Y", "N")
+# write.csv(data.frame("ID"=c(1:30000),"Alcoholic.Status"=pred_log), file='logistic.csv', row.names = FALSE)
+# # kaggle score 0.7069
+```
+
+
+## optimizing mtry 3, 6, 9, 12, 15
+```{r}
+set.seed(123)
+rf_mtry3 <- randomForest(Alcoholic.Status ~ . -hear_right - hear_left - urine_protein
+                           - BMI.Category - AGE.Category - weight - serum_creatinine
+                           - sight_left - sight_right - BMI, data=completedData, mtry=3)
+output_mtry3 <- predict(rf_mtry3, full_test)
+
+rf_mtry6 <- randomForest(Alcoholic.Status ~ . -hear_right - hear_left - urine_protein
+                           - BMI.Category - AGE.Category - weight - serum_creatinine
+                           - sight_left - sight_right - BMI, data=completedData, mtry=6)
+output_mtry6 <- predict(rf_mtry6, full_test)
+
+rf_mtry9 <- randomForest(Alcoholic.Status ~ . -hear_right - hear_left - urine_protein
+                           - BMI.Category - AGE.Category - weight - serum_creatinine
+                           - sight_left - sight_right - BMI, data=completedData, mtry=9)
+output_mtry9 <- predict(rf_mtry9, full_test)
+
+rf_mtry12 <- randomForest(Alcoholic.Status ~ . -hear_right - hear_left - urine_protein
+                           - BMI.Category - AGE.Category - weight - serum_creatinine
+                           - sight_left - sight_right - BMI, data=completedData, mtry=12)
+output_mtry12 <- predict(rf_mtry12, full_test)
+
+rf_mtry15 <- randomForest(Alcoholic.Status ~ . -hear_right - hear_left - urine_protein
+                           - BMI.Category - AGE.Category - weight - serum_creatinine
+                           - sight_left - sight_right - BMI, data=completedData, mtry=15)
+output_mtry15 <- predict(rf_mtry15, full_test)
+
+write.csv(data.frame("ID"=c(1:30000),"Alcoholic.Status"=output_mtry3), file='mtry3.csv', row.names = FALSE)
+write.csv(data.frame("ID"=c(1:30000),"Alcoholic.Status"=output_mtry6), file='mtry6.csv', row.names = FALSE)
+write.csv(data.frame("ID"=c(1:30000),"Alcoholic.Status"=output_mtry9), file='mtry9.csv', row.names = FALSE)
+write.csv(data.frame("ID"=c(1:30000),"Alcoholic.Status"=output_mtry12), file='mtry12.csv', row.names = FALSE)
+write.csv(data.frame("ID"=c(1:30000),"Alcoholic.Status"=output_mtry15), file='mtry15.csv', row.names = FALSE)
+
+# 12 performed best --> kaggle score 0.72766
+```
+
+
+
+## try boosting next
+```{r}
+set.seed(123)
+xgb_mice <- train(Alcoholic.Status ~ ., data=new_train, method="xgbTree",
+                trControl = trainControl("cv", number=10))
+pred_xgb3 <- predict(xgb_mice, full_test)
+write.csv(data.frame("ID"=c(1:30000),"Alcoholic.Status"=pred_xgb3), file='pred_xgb3.csv', row.names = FALSE)
+# kaggle score 0.73106
+```
+
